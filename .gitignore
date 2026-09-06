@@ -1,0 +1,20 @@
+# Environment variables — contains DB password, never commit this
+.env
+
+# SQLite database file — local only, not needed in cloud
+*.db
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment folders
+venv/
+.venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
