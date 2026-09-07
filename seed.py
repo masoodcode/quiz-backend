@@ -1,6 +1,36 @@
 from database import engine, SessionLocal, Base
 from models import Category, Topic, Question, Option
 
+
+def reset_tables():
+    """Drop all tables and recreate with the latest schema.
+    Called once when the new schema is deployed to Neon.
+    Safe to run — only drops if old schema is detected.
+    """
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+
+    # If questions table exists but has no topic_id column → old schema
+    needs_reset = False
+    if "questions" in existing_tables:
+        cols = [c["name"] for c in inspector.get_columns("questions")]
+        if "topic_id" not in cols:
+            needs_reset = True
+
+    if needs_reset:
+        print("Old schema detected — dropping all tables for migration...")
+        with engine.connect() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS options CASCADE"))
+            conn.execute(text("DROP TABLE IF EXISTS questions CASCADE"))
+            conn.execute(text("DROP TABLE IF EXISTS topics CASCADE"))
+            conn.execute(text("DROP TABLE IF EXISTS categories CASCADE"))
+            conn.commit()
+        print("Tables dropped. Recreating with new schema...")
+
+    Base.metadata.create_all(bind=engine)
+    print("Tables ready.")
+
 seed_data = [
     {
         "name": "AWS Certified Cloud Practitioner",
@@ -430,8 +460,8 @@ seed_data = [
 
 
 def seed():
-    """Create tables and seed categories, topics, and questions."""
-    Base.metadata.create_all(bind=engine)
+    """Reset schema if needed, create tables, and seed data."""
+    reset_tables()
 
     db = SessionLocal()
     try:
