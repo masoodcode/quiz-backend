@@ -95,3 +95,22 @@ class SubmitOut(BaseModel):
     total:   int
     score:   int
     results: List[AnswerResult]
+
+
+# ─────────────────────────────────────────────
+# BULK schemas (admin bulk question upload)
+# ─────────────────────────────────────────────
+
+class BulkQuestionResult(BaseModel):
+    index:   int     # position in the submitted list (0-based)
+    success: bool
+    text:    str     # question text for reference
+    id:      int = 0 # question id if created successfully
+    error:   str = "" # error message if failed
+
+
+class BulkUploadOut(BaseModel):
+    total:    int
+    created:  int
+    failed:   int
+    results:  List[BulkQuestionResult]

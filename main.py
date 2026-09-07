@@ -13,6 +13,7 @@ from schemas import (
     TopicOut, TopicIn,
     QuestionOut, QuestionIn,
     SubmitIn, SubmitOut, AnswerResult,
+    BulkUploadOut, BulkQuestionResult,
 )
 from seed import seed
 
@@ -238,6 +239,78 @@ def create_question(
         id=question.id,
         text=question.text,
         options=[{"id": o.id, "text": o.text} for o in question.options],
+    )
+
+
+@app.post("/admin/questions/bulk", response_model=BulkUploadOut)
+def create_questions_bulk(
+    payload: List[QuestionIn],
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Add multiple questions in one request.
+    Each question is validated individually.
+    If one fails, the rest still get processed.
+    Returns a summary of created vs failed.
+    """
+    results      = []
+    created_count = 0
+    failed_count  = 0
+
+    for i, q_data in enumerate(payload):
+        try:
+            # Validate topic exists
+            topic = db.query(Topic).filter(Topic.id == q_data.topic_id).first()
+            if not topic:
+                raise ValueError(f"Topic {q_data.topic_id} not found")
+
+            # Validate options
+            if len(q_data.options) < 2:
+                raise ValueError("At least 2 options required")
+
+            correct_count = sum(1 for o in q_data.options if o.is_correct)
+            if correct_count != 1:
+                raise ValueError("Exactly one option must be correct")
+
+            # Insert question
+            question = Question(text=q_data.text, topic_id=q_data.topic_id)
+            db.add(question)
+            db.flush()
+
+            for opt in q_data.options:
+                db.add(Option(
+                    text=opt.text,
+                    is_correct=opt.is_correct,
+                    question_id=question.id,
+                ))
+
+            db.flush()
+            created_count += 1
+            results.append(BulkQuestionResult(
+                index=i,
+                success=True,
+                text=q_data.text,
+                id=question.id,
+            ))
+
+        except Exception as e:
+            # One failure doesn't stop the rest
+            db.rollback()
+            failed_count += 1
+            results.append(BulkQuestionResult(
+                index=i,
+                success=False,
+                text=q_data.text,
+                error=str(e),
+            ))
+
+    db.commit()
+
+    return BulkUploadOut(
+        total=len(payload),
+        created=created_count,
+        failed=failed_count,
+        results=results,
     )
 
 
