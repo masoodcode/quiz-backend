@@ -330,3 +330,43 @@ def delete_question(
     db.delete(question)
     db.commit()
     return {"message": f"Question {question_id} deleted"}
+
+
+@app.delete("/admin/topics/{topic_id}")
+def delete_topic(
+    topic_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Delete a topic and all its questions/options (cascade)."""
+    topic = db.query(Topic).filter(Topic.id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    name = topic.name
+    db.delete(topic)
+    db.commit()
+    return {"message": f"Topic '{name}' and all its questions deleted"}
+
+
+@app.delete("/admin/categories/{category_id}/topics")
+def delete_all_topics_in_category(
+    category_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Delete ALL topics (and their questions/options) under a category.
+    Use this to clean up and start fresh for a category.
+    """
+    category = db.query(Category).filter(Category.id == category_id).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    topics = db.query(Topic).filter(Topic.category_id == category_id).all()
+    count  = len(topics)
+    for topic in topics:
+        db.delete(topic)
+    db.commit()
+    return {
+        "message":       f"Deleted {count} topics and all their questions from '{category.name}'",
+        "topics_deleted": count,
+    }
