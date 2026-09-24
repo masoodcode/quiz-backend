@@ -28,6 +28,7 @@ class TopicOut(BaseModel):
     id:             int
     name:           str
     question_count: int = 0
+    image_url:      Optional[str] = None   # Cloudinary URL — None if no study image
 
     class Config:
         from_attributes = True

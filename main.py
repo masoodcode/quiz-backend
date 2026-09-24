@@ -80,6 +80,9 @@ def get_topics(category_id: int, db: Session = Depends(get_db)):
             id=topic.id,
             name=topic.name,
             question_count=len(topic.questions),
+            image_url=topic.image_url,
+        ))
+            question_count=len(topic.questions),
         ))
     return result
 
@@ -196,7 +199,23 @@ def create_topic(
     db.add(topic)
     db.commit()
     db.refresh(topic)
-    return TopicOut(id=topic.id, name=topic.name, question_count=0)
+    return TopicOut(id=topic.id, name=topic.name, question_count=0, image_url=None)
+
+
+@app.patch("/admin/topics/{topic_id}/image")
+def set_topic_image(
+    topic_id: int,
+    image_url: str,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Set or update the study image URL for a topic."""
+    topic = db.query(Topic).filter(Topic.id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    topic.image_url = image_url
+    db.commit()
+    return {"message": f"Image set for topic '{topic.name}'", "image_url": image_url}
 
 
 @app.post("/admin/questions", response_model=QuestionOut)

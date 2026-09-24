@@ -20,6 +20,7 @@ class Topic(Base):
     id          = Column(Integer, primary_key=True, index=True)
     name        = Column(String, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    image_url   = Column(String, nullable=True)   # Cloudinary URL for study image
 
     category  = relationship("Category", back_populates="topics")
     questions = relationship("Question", back_populates="topic", cascade="all, delete")
