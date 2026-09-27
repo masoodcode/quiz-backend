@@ -82,8 +82,6 @@ def get_topics(category_id: int, db: Session = Depends(get_db)):
             question_count=len(topic.questions),
             image_url=topic.image_url,
         ))
-            question_count=len(topic.questions),
-        ))
     return result
 
 
