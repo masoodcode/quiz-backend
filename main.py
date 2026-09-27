@@ -14,6 +14,7 @@ from schemas import (
     QuestionOut, QuestionIn,
     SubmitIn, SubmitOut, AnswerResult,
     BulkUploadOut, BulkQuestionResult,
+    OralQuestionOut, OralJudgeIn, OralJudgeOut,
 )
 from seed import seed
 
@@ -40,6 +41,22 @@ def require_api_key(key: str = Security(api_key_header)):
     if key != API_KEY:
         raise HTTPException(status_code=403, detail="Invalid or missing API key")
     return key
+
+
+# ── OpenAI client (for the AI Oral Exam feature) ─────────────────────────────
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+
+def get_openai_client():
+    """Lazily create the OpenAI client so the app still boots if the key
+    is missing (the oral endpoints will just return a clear error)."""
+    if not OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI API key not configured on the server",
+        )
+    from openai import OpenAI
+    return OpenAI(api_key=OPENAI_API_KEY)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -155,6 +172,95 @@ def submit_answers(payload: SubmitIn, db: Session = Depends(get_db)):
         ))
 
     return SubmitOut(total=len(payload.answers), score=score, results=results)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ORAL EXAM endpoints — voice Q&A judged by OpenAI
+# ═════════════════════════════════════════════════════════════════════════════
+
+@app.get("/topics/{topic_id}/oral-questions", response_model=List[OralQuestionOut])
+def get_oral_questions(
+    topic_id: int,
+    limit: int = 5,          # default 5 questions for an oral round
+    db: Session = Depends(get_db),
+):
+    """Return questions for oral exam. Each includes the correct answer text
+    (from the MCQ correct option) so it can serve as the reference answer
+    when the AI judges the student's spoken response."""
+    topic = db.query(Topic).filter(Topic.id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    questions = list(topic.questions)
+    if limit and limit < len(questions):
+        questions = random.sample(questions, limit)
+    else:
+        random.shuffle(questions)
+
+    result = []
+    for q in questions:
+        correct = next((o for o in q.options if o.is_correct), None)
+        result.append(OralQuestionOut(
+            id=q.id,
+            text=q.text,
+            reference_answer=correct.text if correct else "",
+        ))
+    return result
+
+
+@app.post("/oral/judge", response_model=OralJudgeOut)
+def judge_oral_answer(payload: OralJudgeIn):
+    """Use OpenAI to judge a student's spoken answer against the reference
+    answer, like a teacher grading an oral exam. Returns correctness, a score,
+    short feedback, and an ideal answer."""
+    client = get_openai_client()
+
+    system_prompt = (
+        "You are a friendly but rigorous examiner conducting an oral exam on "
+        "Kubernetes and DevOps. A student answers questions by speaking, and their "
+        "speech is transcribed (so expect minor transcription errors — judge on "
+        "meaning, not exact wording). "
+        "You are given the question, a reference answer, and the student's answer. "
+        "Decide if the student's answer is essentially correct. Be fair: accept "
+        "answers that capture the core idea even if phrased differently or "
+        "incomplete on minor details. Reject answers that are wrong, empty, or "
+        "miss the main concept. "
+        "Reply with a JSON object ONLY, with these exact keys: "
+        '"is_correct" (boolean), "score" (integer 0-100 for accuracy/completeness), '
+        '"feedback" (one or two warm, encouraging sentences addressed directly to '
+        'the student, spoken-style, mentioning what was right or what was missing), '
+        'and "ideal_answer" (a concise 1-2 sentence model answer).'
+    )
+
+    user_prompt = (
+        f"Question: {payload.question}\n\n"
+        f"Reference answer: {payload.reference_answer}\n\n"
+        f"Student's answer: {payload.user_answer}"
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3,
+        )
+        import json
+        raw = completion.choices[0].message.content
+        data = json.loads(raw)
+        return OralJudgeOut(
+            is_correct=bool(data.get("is_correct", False)),
+            score=int(data.get("score", 0)),
+            feedback=str(data.get("feedback", "")),
+            ideal_answer=str(data.get("ideal_answer", payload.reference_answer)),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI judging failed: {e}")
 
 
 # ═════════════════════════════════════════════════════════════════════════════

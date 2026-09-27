@@ -115,3 +115,31 @@ class BulkUploadOut(BaseModel):
     created:  int
     failed:   int
     results:  List[BulkQuestionResult]
+
+
+# ─────────────────────────────────────────────
+# ORAL EXAM schemas (voice Q&A, AI judged)
+# ─────────────────────────────────────────────
+
+class OralQuestionOut(BaseModel):
+    """A question for oral exam — includes the reference (correct) answer text
+    so the app can send it to the judge endpoint."""
+    id:              int
+    text:            str
+    reference_answer: str   # the correct MCQ option text — used as the model answer
+
+    class Config:
+        from_attributes = True
+
+
+class OralJudgeIn(BaseModel):
+    question:         str    # the question that was asked
+    reference_answer: str    # the known correct answer (from MCQ option)
+    user_answer:      str    # what the student said (transcribed by speech-to-text)
+
+
+class OralJudgeOut(BaseModel):
+    is_correct: bool    # did the student get it right?
+    score:      int     # 0-100 how complete/accurate the answer was
+    feedback:   str     # short spoken-style feedback, like a teacher
+    ideal_answer: str   # a concise model answer for the student to learn from
