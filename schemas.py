@@ -143,3 +143,103 @@ class OralJudgeOut(BaseModel):
     score:      int     # 0-100 how complete/accurate the answer was
     feedback:   str     # short spoken-style feedback, like a teacher
     ideal_answer: str   # a concise model answer for the student to learn from
+
+
+# ─────────────────────────────────────────────
+# DIAGRAM FILL schemas (fill-in-the-blank diagrams)
+# ─────────────────────────────────────────────
+
+# ---- OUTPUT (what the app receives) ----
+
+class DiagramTopicOut(BaseModel):
+    id:             int
+    name:           str
+    icon:           str
+    color:          str
+    diagram_count:  int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class DiagramNodeOut(BaseModel):
+    """A node as the app sees it. For blank nodes the correct label is NOT
+    sent — the app only knows it's a blank. 'answer' is returned only when
+    the client explicitly needs it for grading on-device."""
+    node_key: int
+    label:    str      # empty string "" when is_blank (hidden)
+    is_blank: bool
+    shape:    str
+    position: int
+    branch:   Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DiagramEdgeOut(BaseModel):
+    from_key:     int
+    to_key:       int
+    branch_label: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DiagramOut(BaseModel):
+    id:          int
+    title:       str
+    instruction: str
+    layout:      str
+    nodes:       List[DiagramNodeOut]
+    edges:       List[DiagramEdgeOut]
+    word_bank:   List[str]   # shuffled: correct blank labels + distractors
+    # answers maps node_key -> correct label, used by the app to grade locally
+    answers:     dict
+
+    class Config:
+        from_attributes = True
+
+
+class DiagramSummaryOut(BaseModel):
+    """Lightweight listing of a diagram (no nodes/edges)."""
+    id:          int
+    title:       str
+    layout:      str
+    blank_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+# ---- INPUT (admin create) ----
+
+class DiagramNodeIn(BaseModel):
+    node_key: int
+    label:    str
+    is_blank: bool = False
+    shape:    str = "process"      # process | start | end | decision
+    position: int = 0
+    branch:   Optional[str] = None # left | right | None
+
+
+class DiagramEdgeIn(BaseModel):
+    from_key:     int
+    to_key:       int
+    branch_label: Optional[str] = None
+
+
+class DiagramIn(BaseModel):
+    topic_name:  str               # auto-creates the diagram topic if new
+    title:       str
+    instruction: str = "Drag the right word into each blank box"
+    layout:      str = "linear"    # linear | flowchart
+    distractors: List[str] = []
+    nodes:       List[DiagramNodeIn]
+    edges:       List[DiagramEdgeIn]
+
+
+class DiagramTopicIn(BaseModel):
+    name:  str
+    icon:  str = "🧩"
+    color: str = "#2E7D32"

@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import engine, get_db, Base
-from models import Category, Topic, Question, Option
+from models import (
+    Category, Topic, Question, Option,
+    DiagramTopic, Diagram, DiagramNode, DiagramEdge,
+)
 from schemas import (
     CategoryOut, CategoryIn,
     TopicOut, TopicIn,
@@ -15,6 +18,9 @@ from schemas import (
     SubmitIn, SubmitOut, AnswerResult,
     BulkUploadOut, BulkQuestionResult,
     OralQuestionOut, OralJudgeIn, OralJudgeOut,
+    DiagramTopicOut, DiagramTopicIn,
+    DiagramOut, DiagramSummaryOut, DiagramIn,
+    DiagramNodeOut, DiagramEdgeOut,
 )
 from seed import seed
 
@@ -261,6 +267,178 @@ def judge_oral_answer(payload: OralJudgeIn):
         raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI judging failed: {e}")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# DIAGRAM FILL endpoints — fill-in-the-blank concept diagrams (separate feature)
+# ═════════════════════════════════════════════════════════════════════════════
+
+import random as _random
+
+
+@app.get("/diagram-topics", response_model=List[DiagramTopicOut])
+def get_diagram_topics(db: Session = Depends(get_db)):
+    """List all diagram topics with how many diagrams each has."""
+    topics = db.query(DiagramTopic).all()
+    return [
+        DiagramTopicOut(
+            id=t.id, name=t.name, icon=t.icon, color=t.color,
+            diagram_count=len(t.diagrams),
+        )
+        for t in topics
+    ]
+
+
+@app.get("/diagram-topics/{topic_id}/diagrams",
+         response_model=List[DiagramSummaryOut])
+def get_diagrams_for_topic(topic_id: int, db: Session = Depends(get_db)):
+    """List diagrams in a topic (summary only)."""
+    topic = db.query(DiagramTopic).filter(DiagramTopic.id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Diagram topic not found")
+    return [
+        DiagramSummaryOut(
+            id=d.id, title=d.title, layout=d.layout,
+            blank_count=sum(1 for n in d.nodes if n.is_blank),
+        )
+        for d in topic.diagrams
+    ]
+
+
+@app.get("/diagrams/{diagram_id}", response_model=DiagramOut)
+def get_diagram(diagram_id: int, db: Session = Depends(get_db)):
+    """Fetch one diagram ready to render. Blank node labels are hidden;
+    a shuffled word bank (correct blanks + distractors) and an answers map
+    are returned so the app can let the user drag-and-grade on-device."""
+    d = db.query(Diagram).filter(Diagram.id == diagram_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="Diagram not found")
+
+    nodes_out = []
+    answers   = {}
+    blank_labels = []
+    for n in d.nodes:
+        if n.is_blank:
+            answers[str(n.node_key)] = n.label
+            blank_labels.append(n.label)
+        nodes_out.append(DiagramNodeOut(
+            node_key=n.node_key,
+            label="" if n.is_blank else n.label,
+            is_blank=n.is_blank,
+            shape=n.shape,
+            position=n.position,
+            branch=n.branch,
+        ))
+
+    edges_out = [
+        DiagramEdgeOut(from_key=e.from_key, to_key=e.to_key,
+                       branch_label=e.branch_label)
+        for e in d.edges
+    ]
+
+    distractors = [x.strip() for x in (d.distractors or "").split(",")
+                   if x.strip()]
+    word_bank = blank_labels + distractors
+    _random.shuffle(word_bank)
+
+    return DiagramOut(
+        id=d.id,
+        title=d.title,
+        instruction=d.instruction,
+        layout=d.layout,
+        nodes=nodes_out,
+        edges=edges_out,
+        word_bank=word_bank,
+        answers=answers,
+    )
+
+
+@app.post("/admin/diagram-topics", response_model=DiagramTopicOut)
+def create_diagram_topic(
+    payload: DiagramTopicIn,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    existing = db.query(DiagramTopic).filter(
+        DiagramTopic.name == payload.name
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Topic already exists")
+    t = DiagramTopic(name=payload.name, icon=payload.icon, color=payload.color)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return DiagramTopicOut(id=t.id, name=t.name, icon=t.icon,
+                           color=t.color, diagram_count=0)
+
+
+@app.post("/admin/diagrams", response_model=DiagramOut)
+def create_diagram(
+    payload: DiagramIn,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Create a diagram. Auto-creates the diagram topic by name if needed."""
+    if len(payload.nodes) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 nodes")
+    if not any(n.is_blank for n in payload.nodes):
+        raise HTTPException(status_code=400,
+                            detail="At least one node must be a blank")
+
+    # Get or create the topic
+    topic = db.query(DiagramTopic).filter(
+        DiagramTopic.name == payload.topic_name
+    ).first()
+    if not topic:
+        topic = DiagramTopic(name=payload.topic_name)
+        db.add(topic)
+        db.flush()
+
+    diagram = Diagram(
+        title=payload.title,
+        instruction=payload.instruction,
+        layout=payload.layout,
+        distractors=",".join(payload.distractors),
+        topic_id=topic.id,
+    )
+    db.add(diagram)
+    db.flush()
+
+    for n in payload.nodes:
+        db.add(DiagramNode(
+            diagram_id=diagram.id,
+            node_key=n.node_key,
+            label=n.label,
+            is_blank=n.is_blank,
+            shape=n.shape,
+            position=n.position,
+            branch=n.branch,
+        ))
+    for e in payload.edges:
+        db.add(DiagramEdge(
+            diagram_id=diagram.id,
+            from_key=e.from_key,
+            to_key=e.to_key,
+            branch_label=e.branch_label,
+        ))
+
+    db.commit()
+    db.refresh(diagram)
+    return get_diagram(diagram.id, db)
+
+
+@app.delete("/admin/diagrams/{diagram_id}")
+def delete_diagram(
+    diagram_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    d = db.query(Diagram).filter(Diagram.id == diagram_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="Diagram not found")
+    db.delete(d)
+    db.commit()
+    return {"message": f"Diagram {diagram_id} deleted"}
 
 
 # ═════════════════════════════════════════════════════════════════════════════
