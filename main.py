@@ -49,6 +49,13 @@ def require_api_key(key: str = Security(api_key_header)):
     return key
 
 
+# ── Feature flag: randomize MCQ question + option order ──────────────────────
+# Default OFF so questions appear in a stable, repeatable order (good while
+# first learning the material). Flip RANDOMIZE=true in the environment to
+# restore shuffling later — no code change needed.
+RANDOMIZE = os.getenv("RANDOMIZE", "false").lower() == "true"
+
+
 # ── OpenAI client (for the AI Oral Exam feature) ─────────────────────────────
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
@@ -114,24 +121,39 @@ def get_questions(
     limit: int = 0,          # 0 = return all, N = return N random questions
     db: Session = Depends(get_db),
 ):
-    """Return questions for a topic — randomized order, options shuffled too."""
+    """Return questions for a topic.
+
+    When RANDOMIZE is on, both question order and option order are shuffled.
+    When off (default), everything is returned in a stable order (by id) so
+    the same topic shows the same sequence every time — useful while first
+    learning the material.
+    """
     topic = db.query(Topic).filter(Topic.id == topic_id).first()
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
 
     questions = list(topic.questions)
 
-    # Randomly select N questions if limit is set
-    if limit and limit < len(questions):
-        questions = random.sample(questions, limit)
+    if RANDOMIZE:
+        # Randomly select N questions if limit is set, else shuffle all
+        if limit and limit < len(questions):
+            questions = random.sample(questions, limit)
+        else:
+            random.shuffle(questions)
     else:
-        random.shuffle(questions)
+        # Stable, repeatable order
+        questions.sort(key=lambda q: q.id)
+        if limit:
+            questions = questions[:limit]
 
     result = []
     for q in questions:
-        # Shuffle options so correct answer isn't always in same position
         options = list(q.options)
-        random.shuffle(options)
+        if RANDOMIZE:
+            # Shuffle options so correct answer isn't always in same position
+            random.shuffle(options)
+        else:
+            options.sort(key=lambda o: o.id)
         result.append(QuestionOut(
             id=q.id,
             text=q.text,
