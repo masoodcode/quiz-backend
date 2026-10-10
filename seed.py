@@ -48,6 +48,18 @@ def reset_tables():
                     ))
                     conn.commit()
 
+        if "yaml_topics" in inspector.get_table_names():
+            yt_cols = [c["name"] for c in
+                       inspector.get_columns("yaml_topics")]
+            if "section" not in yt_cols:
+                print("Adding yaml_topics.section column...")
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE yaml_topics "
+                        "ADD COLUMN IF NOT EXISTS section VARCHAR DEFAULT 'General'"
+                    ))
+                    conn.commit()
+
     print("Tables ready.")
 
 seed_data = [

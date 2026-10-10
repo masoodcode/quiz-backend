@@ -259,6 +259,7 @@ class YamlTopicOut(BaseModel):
     name:           str
     icon:           str
     color:          str
+    section:        str = "General"
     exercise_count: int = 0
 
     class Config:
@@ -311,9 +312,14 @@ class YamlExerciseIn(BaseModel):
 
 
 class YamlTopicIn(BaseModel):
-    name:  str
-    icon:  str = "📄"
-    color: str = "#B8860B"
+    name:    str
+    icon:    str = "📄"
+    color:   str = "#B8860B"
+    section: str = "General"
+
+
+class YamlSectionIn(BaseModel):
+    section: str
 
 
 # ---- AI judge (write mode) ----

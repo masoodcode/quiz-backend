@@ -22,7 +22,7 @@ from schemas import (
     DiagramTopicOut, DiagramTopicIn,
     DiagramOut, DiagramSummaryOut, DiagramIn,
     DiagramNodeOut, DiagramEdgeOut,
-    YamlTopicOut, YamlTopicIn,
+    YamlTopicOut, YamlTopicIn, YamlSectionIn,
     YamlExerciseOut, YamlExerciseSummaryOut, YamlExerciseIn,
     YamlJudgeIn, YamlJudgeOut,
 )
@@ -481,6 +481,7 @@ def get_yaml_topics(db: Session = Depends(get_db)):
     topics = db.query(YamlTopic).all()
     return [
         YamlTopicOut(id=t.id, name=t.name, icon=t.icon, color=t.color,
+                     section=t.section or "General",
                      exercise_count=len(t.exercises))
         for t in topics
     ]
@@ -605,12 +606,33 @@ def create_yaml_topic(
     existing = db.query(YamlTopic).filter(YamlTopic.name == payload.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Topic already exists")
-    t = YamlTopic(name=payload.name, icon=payload.icon, color=payload.color)
+    t = YamlTopic(name=payload.name, icon=payload.icon, color=payload.color,
+                  section=payload.section)
     db.add(t)
     db.commit()
     db.refresh(t)
     return YamlTopicOut(id=t.id, name=t.name, icon=t.icon,
-                        color=t.color, exercise_count=0)
+                        color=t.color, section=t.section or "General",
+                        exercise_count=0)
+
+
+@app.patch("/admin/yaml-topics/{topic_id}/section", response_model=YamlTopicOut)
+def set_yaml_topic_section(
+    topic_id: int,
+    payload: YamlSectionIn,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Set the group/section heading for a YAML topic."""
+    t = db.query(YamlTopic).filter(YamlTopic.id == topic_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="YAML topic not found")
+    t.section = payload.section
+    db.commit()
+    db.refresh(t)
+    return YamlTopicOut(id=t.id, name=t.name, icon=t.icon, color=t.color,
+                        section=t.section or "General",
+                        exercise_count=len(t.exercises))
 
 
 @app.post("/admin/yaml-exercises", response_model=YamlExerciseSummaryOut)

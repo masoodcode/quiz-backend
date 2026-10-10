@@ -143,6 +143,8 @@ class YamlTopic(Base):
     name  = Column(String, nullable=False, unique=True)
     icon  = Column(String, nullable=False, default="📄")
     color = Column(String, nullable=False, default="#B8860B")  # amber/gold
+    # Group heading for the app (e.g. "Traffic Management", "Security")
+    section = Column(String, nullable=True, default="General")
 
     exercises = relationship(
         "YamlExercise", back_populates="topic", cascade="all, delete"
