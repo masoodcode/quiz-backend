@@ -540,8 +540,17 @@ def get_yaml_exercise(exercise_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/yaml/judge", response_model=YamlJudgeOut)
-def judge_yaml(payload: YamlJudgeIn):
-    """Use OpenAI to grade a user-written manifest against a reference."""
+def judge_yaml(payload: YamlJudgeIn, db: Session = Depends(get_db)):
+    """Use OpenAI to grade a user-written manifest. The task prompt and
+    reference manifest are looked up server-side so the answer is never
+    exposed to the client."""
+    ex = db.query(YamlExercise).filter(
+        YamlExercise.id == payload.exercise_id
+    ).first()
+    if not ex or ex.mode != "write":
+        raise HTTPException(status_code=404,
+                            detail="Write-mode YAML exercise not found")
+
     client = get_openai_client()
 
     system_prompt = (
@@ -558,8 +567,8 @@ def judge_yaml(payload: YamlJudgeIn):
         "empty if none)."
     )
     user_prompt = (
-        f"Task: {payload.task_prompt}\n\n"
-        f"Reference manifest:\n{payload.reference_yaml}\n\n"
+        f"Task: {ex.task_prompt}\n\n"
+        f"Reference manifest:\n{ex.reference_yaml}\n\n"
         f"Student's manifest:\n{payload.user_yaml}"
     )
 

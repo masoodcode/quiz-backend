@@ -319,9 +319,8 @@ class YamlTopicIn(BaseModel):
 # ---- AI judge (write mode) ----
 
 class YamlJudgeIn(BaseModel):
-    task_prompt:    str
-    reference_yaml: str
-    user_yaml:      str
+    exercise_id: int    # server looks up task_prompt + reference_yaml itself
+    user_yaml:   str
 
 
 class YamlJudgeOut(BaseModel):
