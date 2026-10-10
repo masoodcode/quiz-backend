@@ -191,6 +191,7 @@ class DiagramOut(BaseModel):
     title:       str
     instruction: str
     layout:      str
+    is_architecture: bool = False
     nodes:       List[DiagramNodeOut]
     edges:       List[DiagramEdgeOut]
     word_bank:   List[str]   # shuffled: correct blank labels + distractors
@@ -208,6 +209,7 @@ class DiagramSummaryOut(BaseModel):
     id:          int
     title:       str
     layout:      str
+    is_architecture: bool = False
     blank_count: int = 0
 
     class Config:
@@ -237,6 +239,7 @@ class DiagramIn(BaseModel):
     title:       str
     instruction: str = "Drag the right word into each blank box"
     layout:      str = "linear"    # linear | flowchart
+    is_architecture: bool = False  # True = view-only study diagram
     distractors: List[str] = []
     nodes:       List[DiagramNodeIn]
     edges:       List[DiagramEdgeIn]

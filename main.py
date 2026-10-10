@@ -325,6 +325,7 @@ def get_diagrams_for_topic(topic_id: int, db: Session = Depends(get_db)):
     return [
         DiagramSummaryOut(
             id=d.id, title=d.title, layout=d.layout,
+            is_architecture=bool(d.is_architecture),
             blank_count=sum(1 for n in d.nodes if n.is_blank),
         )
         for d in topic.diagrams
@@ -344,16 +345,19 @@ def get_diagram(diagram_id: int, db: Session = Depends(get_db)):
     answers      = {}
     explanations = {}
     blank_labels = []
+    arch = bool(d.is_architecture)
     for n in d.nodes:
-        if n.is_blank:
+        # In architecture (view-only) diagrams nothing is hidden — all labels show.
+        blank = n.is_blank and not arch
+        if blank:
             answers[str(n.node_key)] = n.label
             blank_labels.append(n.label)
         if n.explanation:
             explanations[str(n.node_key)] = n.explanation
         nodes_out.append(DiagramNodeOut(
             node_key=n.node_key,
-            label="" if n.is_blank else n.label,
-            is_blank=n.is_blank,
+            label="" if blank else n.label,
+            is_blank=blank,
             shape=n.shape,
             position=n.position,
             branch=n.branch,
@@ -375,6 +379,7 @@ def get_diagram(diagram_id: int, db: Session = Depends(get_db)):
         title=d.title,
         instruction=d.instruction,
         layout=d.layout,
+        is_architecture=arch,
         nodes=nodes_out,
         edges=edges_out,
         word_bank=word_bank,
@@ -411,7 +416,8 @@ def create_diagram(
     """Create a diagram. Auto-creates the diagram topic by name if needed."""
     if len(payload.nodes) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 nodes")
-    if not any(n.is_blank for n in payload.nodes):
+    # Architecture (study) diagrams are view-only, so blanks are not required.
+    if not payload.is_architecture and not any(n.is_blank for n in payload.nodes):
         raise HTTPException(status_code=400,
                             detail="At least one node must be a blank")
 
@@ -428,6 +434,7 @@ def create_diagram(
         title=payload.title,
         instruction=payload.instruction,
         layout=payload.layout,
+        is_architecture=payload.is_architecture,
         distractors=",".join(payload.distractors),
         topic_id=topic.id,
     )

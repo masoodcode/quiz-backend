@@ -80,6 +80,8 @@ class Diagram(Base):
     layout      = Column(String, nullable=False, default="linear")
     # Comma-separated wrong-answer words added to the word bank
     distractors = Column(String, nullable=True)
+    # True = view-only study diagram (fully labeled, no blanks to solve)
+    is_architecture = Column(Boolean, default=False)
     topic_id    = Column(Integer, ForeignKey("diagram_topics.id"), nullable=False)
 
     topic = relationship("DiagramTopic", back_populates="diagrams")

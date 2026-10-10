@@ -60,6 +60,17 @@ def reset_tables():
                     ))
                     conn.commit()
 
+        if "diagrams" in inspector.get_table_names():
+            dg_cols = [c["name"] for c in inspector.get_columns("diagrams")]
+            if "is_architecture" not in dg_cols:
+                print("Adding diagrams.is_architecture column...")
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE diagrams "
+                        "ADD COLUMN IF NOT EXISTS is_architecture BOOLEAN DEFAULT false"
+                    ))
+                    conn.commit()
+
     print("Tables ready.")
 
 seed_data = [
