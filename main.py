@@ -10,6 +10,7 @@ from database import engine, get_db, Base
 from models import (
     Category, Topic, Question, Option,
     DiagramTopic, Diagram, DiagramNode, DiagramEdge,
+    YamlTopic, YamlExercise, YamlBlank,
 )
 from schemas import (
     CategoryOut, CategoryIn,
@@ -21,6 +22,9 @@ from schemas import (
     DiagramTopicOut, DiagramTopicIn,
     DiagramOut, DiagramSummaryOut, DiagramIn,
     DiagramNodeOut, DiagramEdgeOut,
+    YamlTopicOut, YamlTopicIn,
+    YamlExerciseOut, YamlExerciseSummaryOut, YamlExerciseIn,
+    YamlJudgeIn, YamlJudgeOut,
 )
 from seed import seed
 
@@ -466,6 +470,202 @@ def delete_diagram(
     db.delete(d)
     db.commit()
     return {"message": f"Diagram {diagram_id} deleted"}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# YAML PRACTICE endpoints — fill-in-the-blank + AI-graded write (separate feature)
+# ═════════════════════════════════════════════════════════════════════════════
+
+@app.get("/yaml-topics", response_model=List[YamlTopicOut])
+def get_yaml_topics(db: Session = Depends(get_db)):
+    topics = db.query(YamlTopic).all()
+    return [
+        YamlTopicOut(id=t.id, name=t.name, icon=t.icon, color=t.color,
+                     exercise_count=len(t.exercises))
+        for t in topics
+    ]
+
+
+@app.get("/yaml-topics/{topic_id}/exercises",
+         response_model=List[YamlExerciseSummaryOut])
+def get_yaml_exercises(topic_id: int, db: Session = Depends(get_db)):
+    topic = db.query(YamlTopic).filter(YamlTopic.id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="YAML topic not found")
+    return [
+        YamlExerciseSummaryOut(
+            id=e.id, title=e.title, mode=e.mode, blank_count=len(e.blanks)
+        )
+        for e in topic.exercises
+    ]
+
+
+@app.get("/yaml-exercises/{exercise_id}", response_model=YamlExerciseOut)
+def get_yaml_exercise(exercise_id: int, db: Session = Depends(get_db)):
+    e = db.query(YamlExercise).filter(YamlExercise.id == exercise_id).first()
+    if not e:
+        raise HTTPException(status_code=404, detail="YAML exercise not found")
+
+    if e.mode == "write":
+        return YamlExerciseOut(
+            id=e.id, title=e.title, mode=e.mode, task_prompt=e.task_prompt,
+        )
+
+    # fill mode — build word bank + answers/explanations maps
+    answers      = {}
+    explanations = {}
+    answer_vals  = []
+    for b in e.blanks:
+        answers[str(b.position)] = b.answer
+        answer_vals.append(b.answer)
+        if b.explanation:
+            explanations[str(b.position)] = b.explanation
+
+    distractors = [x.strip() for x in (e.distractors or "").split(",")
+                   if x.strip()]
+    # de-dup while keeping order, then shuffle
+    seen = set()
+    word_bank = []
+    for w in answer_vals + distractors:
+        if w not in seen:
+            seen.add(w)
+            word_bank.append(w)
+    _random.shuffle(word_bank)
+
+    return YamlExerciseOut(
+        id=e.id, title=e.title, mode=e.mode,
+        template=e.template, word_bank=word_bank,
+        answers=answers, explanations=explanations,
+    )
+
+
+@app.post("/yaml/judge", response_model=YamlJudgeOut)
+def judge_yaml(payload: YamlJudgeIn):
+    """Use OpenAI to grade a user-written manifest against a reference."""
+    client = get_openai_client()
+
+    system_prompt = (
+        "You are a Kubernetes and Istio YAML examiner. Given a task, a "
+        "reference manifest, and a student's manifest, judge whether the "
+        "student's YAML correctly accomplishes the task. Accept valid "
+        "variations (field order, quoting, equivalent values, extra harmless "
+        "fields). Focus on: correct apiVersion/kind, required spec fields, and "
+        "the values that matter for the task. Minor style differences are fine. "
+        "Reply with JSON ONLY with keys: "
+        '"is_correct" (boolean), "score" (integer 0-100), '
+        '"feedback" (one or two encouraging sentences to the student), '
+        'and "issues" (array of short strings naming any concrete mistakes; '
+        "empty if none)."
+    )
+    user_prompt = (
+        f"Task: {payload.task_prompt}\n\n"
+        f"Reference manifest:\n{payload.reference_yaml}\n\n"
+        f"Student's manifest:\n{payload.user_yaml}"
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.2,
+        )
+        import json
+        data = json.loads(completion.choices[0].message.content)
+        return YamlJudgeOut(
+            is_correct=bool(data.get("is_correct", False)),
+            score=int(data.get("score", 0)),
+            feedback=str(data.get("feedback", "")),
+            issues=[str(x) for x in data.get("issues", [])],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI judging failed: {e}")
+
+
+@app.post("/admin/yaml-topics", response_model=YamlTopicOut)
+def create_yaml_topic(
+    payload: YamlTopicIn,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    existing = db.query(YamlTopic).filter(YamlTopic.name == payload.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Topic already exists")
+    t = YamlTopic(name=payload.name, icon=payload.icon, color=payload.color)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return YamlTopicOut(id=t.id, name=t.name, icon=t.icon,
+                        color=t.color, exercise_count=0)
+
+
+@app.post("/admin/yaml-exercises", response_model=YamlExerciseSummaryOut)
+def create_yaml_exercise(
+    payload: YamlExerciseIn,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    if payload.mode not in ("fill", "write"):
+        raise HTTPException(status_code=400, detail="mode must be fill or write")
+    if payload.mode == "fill" and (not payload.template or not payload.blanks):
+        raise HTTPException(status_code=400,
+                            detail="fill mode needs a template and blanks")
+    if payload.mode == "write" and (not payload.task_prompt
+                                    or not payload.reference_yaml):
+        raise HTTPException(status_code=400,
+                            detail="write mode needs task_prompt and reference_yaml")
+
+    topic = db.query(YamlTopic).filter(
+        YamlTopic.name == payload.topic_name
+    ).first()
+    if not topic:
+        topic = YamlTopic(name=payload.topic_name)
+        db.add(topic)
+        db.flush()
+
+    ex = YamlExercise(
+        topic_id=topic.id,
+        title=payload.title,
+        mode=payload.mode,
+        template=payload.template,
+        distractors=",".join(payload.distractors),
+        task_prompt=payload.task_prompt,
+        reference_yaml=payload.reference_yaml,
+    )
+    db.add(ex)
+    db.flush()
+
+    for b in payload.blanks:
+        db.add(YamlBlank(
+            exercise_id=ex.id,
+            position=b.position,
+            answer=b.answer,
+            explanation=b.explanation,
+        ))
+    db.commit()
+    db.refresh(ex)
+    return YamlExerciseSummaryOut(
+        id=ex.id, title=ex.title, mode=ex.mode, blank_count=len(ex.blanks)
+    )
+
+
+@app.delete("/admin/yaml-exercises/{exercise_id}")
+def delete_yaml_exercise(
+    exercise_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    e = db.query(YamlExercise).filter(YamlExercise.id == exercise_id).first()
+    if not e:
+        raise HTTPException(status_code=404, detail="YAML exercise not found")
+    db.delete(e)
+    db.commit()
+    return {"message": f"YAML exercise {exercise_id} deleted"}
 
 
 # ═════════════════════════════════════════════════════════════════════════════

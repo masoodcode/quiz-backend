@@ -246,3 +246,86 @@ class DiagramTopicIn(BaseModel):
     name:  str
     icon:  str = "🧩"
     color: str = "#2E7D32"
+
+
+# ─────────────────────────────────────────────
+# YAML PRACTICE schemas
+# ─────────────────────────────────────────────
+
+# ---- OUTPUT ----
+
+class YamlTopicOut(BaseModel):
+    id:             int
+    name:           str
+    icon:           str
+    color:          str
+    exercise_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class YamlExerciseSummaryOut(BaseModel):
+    id:          int
+    title:       str
+    mode:        str          # fill | write
+    blank_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class YamlExerciseOut(BaseModel):
+    id:          int
+    title:       str
+    mode:        str
+    # fill mode:
+    template:    Optional[str] = None     # with ___N___ placeholders
+    word_bank:   List[str] = []           # shuffled: answers + distractors
+    answers:     dict = {}                # position(str) -> correct value
+    explanations: dict = {}               # position(str) -> why
+    # write mode:
+    task_prompt: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ---- INPUT (admin) ----
+
+class YamlBlankIn(BaseModel):
+    position:    int
+    answer:      str
+    explanation: Optional[str] = None
+
+
+class YamlExerciseIn(BaseModel):
+    topic_name:    str              # auto-creates the yaml topic if new
+    title:         str
+    mode:          str = "fill"     # fill | write
+    template:      Optional[str] = None
+    distractors:   List[str] = []
+    blanks:        List[YamlBlankIn] = []
+    task_prompt:   Optional[str] = None
+    reference_yaml: Optional[str] = None
+
+
+class YamlTopicIn(BaseModel):
+    name:  str
+    icon:  str = "📄"
+    color: str = "#B8860B"
+
+
+# ---- AI judge (write mode) ----
+
+class YamlJudgeIn(BaseModel):
+    task_prompt:    str
+    reference_yaml: str
+    user_yaml:      str
+
+
+class YamlJudgeOut(BaseModel):
+    is_correct: bool
+    score:      int     # 0-100
+    feedback:   str
+    issues:     List[str] = []   # specific problems found

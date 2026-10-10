@@ -125,3 +125,63 @@ class DiagramEdge(Base):
     branch_label = Column(String, nullable=True)
 
     diagram = relationship("Diagram", back_populates="edges")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# YAML PRACTICE feature — separate from quiz/diagram tables.
+# Two modes:
+#   "fill"  = a manifest with ___1___, ___2___ placeholders the user fills
+#             (deterministic grading against stored answers)
+#   "write" = a task prompt; the user writes a full manifest, graded by AI
+#             against a reference manifest
+# ═════════════════════════════════════════════════════════════════════════════
+
+class YamlTopic(Base):
+    __tablename__ = "yaml_topics"
+
+    id    = Column(Integer, primary_key=True, index=True)
+    name  = Column(String, nullable=False, unique=True)
+    icon  = Column(String, nullable=False, default="📄")
+    color = Column(String, nullable=False, default="#B8860B")  # amber/gold
+
+    exercises = relationship(
+        "YamlExercise", back_populates="topic", cascade="all, delete"
+    )
+
+
+class YamlExercise(Base):
+    __tablename__ = "yaml_exercises"
+
+    id       = Column(Integer, primary_key=True, index=True)
+    topic_id = Column(Integer, ForeignKey("yaml_topics.id"), nullable=False)
+    title    = Column(String, nullable=False)
+    mode     = Column(String, nullable=False, default="fill")  # fill | write
+
+    # ── fill mode ──
+    # The manifest text containing ___1___, ___2___ ... placeholders.
+    template    = Column(String, nullable=True)
+    # Comma-separated distractor words added to the word bank.
+    distractors = Column(String, nullable=True)
+
+    # ── write mode ──
+    task_prompt   = Column(String, nullable=True)  # what to build
+    reference_yaml = Column(String, nullable=True)  # model answer for AI judge
+
+    topic  = relationship("YamlTopic", back_populates="exercises")
+    blanks = relationship(
+        "YamlBlank", back_populates="exercise",
+        cascade="all, delete", order_by="YamlBlank.position",
+    )
+
+
+class YamlBlank(Base):
+    __tablename__ = "yaml_blanks"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    exercise_id = Column(Integer, ForeignKey("yaml_exercises.id"), nullable=False)
+    # position matches the placeholder number (1 -> ___1___)
+    position    = Column(Integer, nullable=False)
+    answer      = Column(String, nullable=False)   # the correct value
+    explanation = Column(String, nullable=True)    # shown after checking
+
+    exercise = relationship("YamlExercise", back_populates="blanks")
