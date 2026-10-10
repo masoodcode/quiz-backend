@@ -101,6 +101,8 @@ class DiagramNode(Base):
     node_key   = Column(Integer, nullable=False)
     label      = Column(String, nullable=False)   # the correct answer when blank
     is_blank   = Column(Boolean, default=False)
+    # short "why" shown after checking — turns a guess into a mini-lesson
+    explanation = Column(String, nullable=True)
     # shape: "process" (rectangle), "start" (oval), "end" (oval), "decision" (diamond)
     shape      = Column(String, nullable=False, default="process")
     # position orders nodes top-to-bottom

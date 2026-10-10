@@ -336,13 +336,16 @@ def get_diagram(diagram_id: int, db: Session = Depends(get_db)):
     if not d:
         raise HTTPException(status_code=404, detail="Diagram not found")
 
-    nodes_out = []
-    answers   = {}
+    nodes_out    = []
+    answers      = {}
+    explanations = {}
     blank_labels = []
     for n in d.nodes:
         if n.is_blank:
             answers[str(n.node_key)] = n.label
             blank_labels.append(n.label)
+        if n.explanation:
+            explanations[str(n.node_key)] = n.explanation
         nodes_out.append(DiagramNodeOut(
             node_key=n.node_key,
             label="" if n.is_blank else n.label,
@@ -372,6 +375,7 @@ def get_diagram(diagram_id: int, db: Session = Depends(get_db)):
         edges=edges_out,
         word_bank=word_bank,
         answers=answers,
+        explanations=explanations,
     )
 
 
@@ -435,6 +439,7 @@ def create_diagram(
             shape=n.shape,
             position=n.position,
             branch=n.branch,
+            explanation=n.explanation,
         ))
     for e in payload.edges:
         db.add(DiagramEdge(

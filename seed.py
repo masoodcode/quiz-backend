@@ -29,6 +29,25 @@ def reset_tables():
         print("Tables dropped. Recreating with new schema...")
 
     Base.metadata.create_all(bind=engine)
+
+    # ── Lightweight additive migrations ──────────────────────────────────
+    # create_all does NOT alter existing tables, so new columns added later
+    # must be applied explicitly. These are idempotent (IF NOT EXISTS) and
+    # only run on PostgreSQL (skipped for local SQLite).
+    if not str(engine.url).startswith("sqlite"):
+        inspector = inspect(engine)
+        if "diagram_nodes" in inspector.get_table_names():
+            node_cols = [c["name"] for c in
+                         inspector.get_columns("diagram_nodes")]
+            if "explanation" not in node_cols:
+                print("Adding diagram_nodes.explanation column...")
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE diagram_nodes "
+                        "ADD COLUMN IF NOT EXISTS explanation VARCHAR"
+                    ))
+                    conn.commit()
+
     print("Tables ready.")
 
 seed_data = [

@@ -196,6 +196,8 @@ class DiagramOut(BaseModel):
     word_bank:   List[str]   # shuffled: correct blank labels + distractors
     # answers maps node_key -> correct label, used by the app to grade locally
     answers:     dict
+    # explanations maps node_key -> short "why" text, shown after checking
+    explanations: dict = {}
 
     class Config:
         from_attributes = True
@@ -215,12 +217,13 @@ class DiagramSummaryOut(BaseModel):
 # ---- INPUT (admin create) ----
 
 class DiagramNodeIn(BaseModel):
-    node_key: int
-    label:    str
-    is_blank: bool = False
-    shape:    str = "process"      # process | start | end | decision
-    position: int = 0
-    branch:   Optional[str] = None # left | right | None
+    node_key:    int
+    label:       str
+    is_blank:    bool = False
+    shape:       str = "process"      # process | start | end | decision
+    position:    int = 0
+    branch:      Optional[str] = None # left | right | None
+    explanation: Optional[str] = None # short "why" shown after checking
 
 
 class DiagramEdgeIn(BaseModel):
