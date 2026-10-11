@@ -479,6 +479,22 @@ def delete_diagram(
     return {"message": f"Diagram {diagram_id} deleted"}
 
 
+@app.delete("/admin/diagram-topics/{topic_id}")
+def delete_diagram_topic(
+    topic_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Delete a diagram topic and all its diagrams (cascade)."""
+    t = db.query(DiagramTopic).filter(DiagramTopic.id == topic_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Diagram topic not found")
+    name = t.name
+    db.delete(t)
+    db.commit()
+    return {"message": f"Diagram topic '{name}' deleted"}
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # YAML PRACTICE endpoints — fill-in-the-blank + AI-graded write (separate feature)
 # ═════════════════════════════════════════════════════════════════════════════
